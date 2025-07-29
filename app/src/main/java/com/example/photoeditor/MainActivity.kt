@@ -7,12 +7,15 @@ import android.graphics.*
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.photoeditor.databinding.ActivityMainBinding
+import jp.co.cyberagent.android.gpuimage.GPUImage
+import jp.co.cyberagent.android.gpuimage.filter.GPUImageGrayscaleFilter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -23,6 +26,8 @@ class MainActivity : AppCompatActivity() {
     private var originalBitmap: Bitmap? = null
     private var currentBitmap: Bitmap? = null
     private var isGrayscaleApplied = false
+    private var isDrawingMode = false
+    private lateinit var gpuImage: GPUImage
     
     private val selectImageLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -45,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        gpuImage = GPUImage(this)
         setupClickListeners()
     }
     
@@ -59,6 +65,14 @@ class MainActivity : AppCompatActivity() {
         
         binding.addTextButton.setOnClickListener {
             addTextOverlay()
+        }
+        
+        binding.drawingButton.setOnClickListener {
+            toggleDrawingMode()
+        }
+        
+        binding.clearDrawingButton.setOnClickListener {
+            clearDrawing()
         }
         
         binding.saveButton.setOnClickListener {
@@ -96,6 +110,11 @@ class MainActivity : AppCompatActivity() {
             binding.imageView.setImageBitmap(currentBitmap)
             isGrayscaleApplied = false
             
+            // Reset drawing mode
+            if (isDrawingMode) {
+                toggleDrawingMode()
+            }
+            
             Toast.makeText(this, "Image loaded successfully", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Error loading image: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -109,19 +128,14 @@ class MainActivity : AppCompatActivity() {
         }
         
         try {
-            val width = currentBitmap!!.width
-            val height = currentBitmap!!.height
-            val grayscaleBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            // Use GPUImage for better performance
+            gpuImage.setImage(currentBitmap)
+            gpuImage.setFilter(GPUImageGrayscaleFilter())
             
-            val canvas = Canvas(grayscaleBitmap)
-            val paint = Paint()
-            val colorMatrix = ColorMatrix()
-            colorMatrix.setSaturation(0f) // 0 = grayscale
-            paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
+            // Get the filtered bitmap
+            val filteredBitmap = gpuImage.bitmapWithFilterApplied
             
-            canvas.drawBitmap(currentBitmap!!, 0f, 0f, paint)
-            
-            currentBitmap = grayscaleBitmap
+            currentBitmap = filteredBitmap
             binding.imageView.setImageBitmap(currentBitmap)
             isGrayscaleApplied = true
             
@@ -175,6 +189,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
+    private fun toggleDrawingMode() {
+        isDrawingMode = !isDrawingMode
+        
+        if (isDrawingMode) {
+            binding.drawingView.visibility = View.VISIBLE
+            binding.clearDrawingButton.visibility = View.VISIBLE
+            binding.drawingButton.text = "Exit Drawing Mode"
+            Toast.makeText(this, "Drawing mode enabled - draw with your finger", Toast.LENGTH_SHORT).show()
+        } else {
+            binding.drawingView.visibility = View.GONE
+            binding.clearDrawingButton.visibility = View.GONE
+            binding.drawingButton.text = "Toggle Drawing Mode"
+            Toast.makeText(this, "Drawing mode disabled", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun clearDrawing() {
+        binding.drawingView.clearDrawing()
+        Toast.makeText(this, "Drawing cleared", Toast.LENGTH_SHORT).show()
+    }
+    
     private fun saveImage() {
         if (currentBitmap == null) {
             Toast.makeText(this, "No image to save", Toast.LENGTH_SHORT).show()
@@ -182,6 +217,30 @@ class MainActivity : AppCompatActivity() {
         }
         
         try {
+            // Create a combined bitmap with drawing if in drawing mode
+            var finalBitmap = currentBitmap!!
+            
+            if (isDrawingMode) {
+                val drawingBitmap = binding.drawingView.getDrawingBitmap()
+                if (drawingBitmap != null) {
+                    // Combine the image with the drawing
+                    val combinedBitmap = Bitmap.createBitmap(
+                        currentBitmap!!.width,
+                        currentBitmap!!.height,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    val canvas = Canvas(combinedBitmap)
+                    
+                    // Draw the current image
+                    canvas.drawBitmap(currentBitmap!!, 0f, 0f, null)
+                    
+                    // Draw the drawing on top
+                    canvas.drawBitmap(drawingBitmap, 0f, 0f, null)
+                    
+                    finalBitmap = combinedBitmap
+                }
+            }
+            
             val imagesDir = File(getExternalFilesDir(null), "PhotoEditor")
             if (!imagesDir.exists()) {
                 imagesDir.mkdirs()
@@ -191,7 +250,7 @@ class MainActivity : AppCompatActivity() {
             val imageFile = File(imagesDir, fileName)
             
             val outputStream = FileOutputStream(imageFile)
-            currentBitmap!!.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
             outputStream.close()
             
             Toast.makeText(
