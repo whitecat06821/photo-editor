@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.view.View
@@ -12,7 +13,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.photoeditor.databinding.ActivityMainBinding
 import jp.co.cyberagent.android.gpuimage.GPUImage
@@ -72,22 +72,34 @@ class MainActivity : AppCompatActivity() {
         gpuImage = GPUImage(this)
     }
 
+    private fun getRequiredPermission(): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+    }
+
     private fun checkAndRequestPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        val permission = getRequiredPermission()
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
             showPermissionDialog()
         }
     }
 
     private fun showPermissionDialog() {
+        val permission = getRequiredPermission()
+        val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            "Photos and Media"
+        } else {
+            "Storage"
+        }
+        
         AlertDialog.Builder(this)
-            .setTitle("Photo Access Required")
-            .setMessage("This app needs access to your photos to edit them. Please grant permission to continue.")
+            .setTitle("Permission Required")
+            .setMessage("This app needs access to your $permissionName to edit photos. Please grant permission to continue.")
             .setPositiveButton("Grant Permission") { _, _ ->
-                permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                permissionLauncher.launch(permission)
             }
             .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
@@ -114,14 +126,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionAndOpenGallery() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
+        val permission = getRequiredPermission()
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
             openGallery()
         } else {
-            permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+            permissionLauncher.launch(permission)
         }
     }
 
